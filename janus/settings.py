@@ -30,6 +30,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["localhost", "janusoptions.herokuapp.com"]
 
+LOGIN_URL = "/options/login/"
 
 # Application definition
 
