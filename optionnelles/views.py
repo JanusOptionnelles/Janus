@@ -119,35 +119,72 @@ def exportPDF(request, id_ue, id_groupe):
     return response
 
 @login_required
+def exportCSV_emmargement(request, id_ue, id_groupe, id_pole, id_parcours, id_semestre ,id_promotion):
+    # Create the HttpResponse object with the appropriate CSV header.
+    liste_etudiant = Etudiant.objects.all()
+    if id_promotion != -1:
+        liste_etudiant = liste_etudiant.filter(parcours__promotion__id =id_promotion)
+    if id_pole != -1:
+        liste_etudiant = liste_etudiant.filter(etudiant_par_ue__pole_ref = id_pole)
+    if id_parcours != -1:
+        liste_etudiant = liste_etudiant.filter(parcours__id = id_parcours)
+    if id_ue != -1:
+        liste_etudiant = liste_etudiant.filter(utilisateur__is_active=True, ues__id=id_ue, etudiant_par_ue__choisie = True)
+    if id_groupe > 0:
+        liste_etudiant = liste_etudiant.filter(etudiant_par_ue__groupe = id_groupe)
+    if id_semestre != -1:
+        liste_etudiant = liste_etudiant.filter(etudiant_par_ue__ue__semestre__id = id_semestre)
+    
+    liste_etudiant = liste_etudiant.distinct().order_by("utilisateur__last_name")
+    
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="export.csv"'
+
+    csv.register_dialect('unixpwd', delimiter=';', quoting=csv.QUOTE_NONE)
+    response.write(codecs.BOM_UTF8)
+    writer = csv.writer(response)
+
+    writer.writerow(["Numéro étudiant; Nom; Prénom; Options;"])
+
+    for e in liste_etudiant:
+        string_ue = ""
+        EtudiantParUE = Etudiant_par_UE.objects.filter(etudiant__id=e.id)
+        for o in EtudiantParUE:
+            if o.optionnelle == True and o.choisie == True:
+                string_ue +=o.ue.nom + " : " + o.ue.code_apoge
+
+        writer.writerow([e.numero_etudiant + ";" + e.utilisateur.last_name + ";" + e.utilisateur.first_name + ";" + string_ue + ";"])
+        
+    return response
+
+
+@login_required
 def exportPDF_emmargement(request, id_ue, id_groupe, id_pole, id_parcours, id_semestre ,id_promotion):
 
     liste_etudiant = Etudiant.objects.all()
     if id_promotion != -1:
-        liste_etudiant.prefetch_related('parcours_set').filter(promotion__id = id_promotion)
+        liste_etudiant = liste_etudiant.filter(parcours__promotion__id =id_promotion)
     if id_pole != -1:
-        liste_etudiant.prefetch_related('parcours_set').select_related('id_parcours').get(id_pole)
+        liste_etudiant = liste_etudiant.filter(etudiant_par_ue__pole_ref = id_pole)
     if id_parcours != -1:
-        liste_etudiant.filter(parcours_etudiant__parcours_id = id_parcours)
+        liste_etudiant = liste_etudiant.filter(parcours__id = id_parcours)
     if id_ue != -1:
-        liste_etudiant.filter(etudiant_par_ue__ue__id = id_ue, etudiant_par_ue__choisie = True)
+        liste_etudiant = liste_etudiant.filter(utilisateur__is_active=True, ues__id=id_ue, etudiant_par_ue__choisie = True)
     if id_groupe > 0:
-        liste_etudiant.filter(etudiant_par_ue__groupe = id_groupe)
+        liste_etudiant = liste_etudiant.filter(etudiant_par_ue__groupe = id_groupe)
     if id_semestre != -1:
-        pass
-        ## manque semestre #############################################################
+        liste_etudiant = liste_etudiant.filter(etudiant_par_ue__ue__semestre__id = id_semestre)
     
-    groupe = id_groupe
-    if id_groupe == 0:
-        groupe = "Promotion complète"
+    liste_etudiant = liste_etudiant.distinct().order_by("utilisateur__last_name")
 
     # Rendered
-    html_string = render_to_string('export/export_pdf.html', {'liste_etudiant': liste_etudiant, 'ue': ue, 'groupe' : groupe})
+    html_string = render_to_string('export/export_pdf.html', {'liste_etudiant': liste_etudiant})
     html = HTML(string=html_string)
     result = html.write_pdf()
 
     # Creating http response
     response = HttpResponse(content_type='application/pdf;')
-    response['Content-Disposition'] = 'attachment; filename="'+ ue.nom +' export.pdf"'
+    response['Content-Disposition'] = 'attachment; filename="export.pdf"'
     response['Content-Transfer-Encoding'] = 'binary'
     with tempfile.NamedTemporaryFile(delete=True) as output:
         output.write(result)
@@ -204,7 +241,7 @@ def liste_emargement(request):
 @login_required
 def admin_selectionGroupe(request, id_ue):
     ue = UE.objects.get(pk=id_ue)
-    user_list = Etudiant.objects.filter(utilisateur__is_active=True, ues__id=id_ue).order_by("utilisateur__last_name")
+    user_list = Etudiant.objects.filter(utilisateur__is_active=True, ues__id=id_ue, etudiant_par_ue__choisie = True).order_by("utilisateur__last_name")
     if ue.nombre_groupes != 0:
         col = int(12/ue.nombre_groupes)
     else:
@@ -268,7 +305,8 @@ def population_liste(request):
     ue_id = request.GET.get('id_ue', None)
     first_launch = request.GET.get('first_launch', None)
     modified_list = request.GET.get('modified_list', None)
-    
+    print("nb groupe : " + ue_id) 
+
     data_promotion = list(Promotion.objects.all().values())
     data_semestre = list(Semestre.objects.all().values())
     data_pole = list(Pole.objects.all().values())
@@ -276,15 +314,13 @@ def population_liste(request):
     data_ue = list(UE.objects.all().values())
     data_groupe = []
 
-    if(first_launch):
-        print("test")
-    else:
-         if(modified_list == "UE"):
-            data_groupe = []
-            nb_group = Ues.object.get(id=ue_id).nombre_groupes
+    if(first_launch == 'false'):
+         if(modified_list == "UE"):       
+            nb_group = UE.objects.get(id=ue_id).nombre_groupes
+
             for i in range(nb_group):
-                data_groupe[i] = i 
-            data_groupe = list(data_groupe)
+                data_groupe.append(i+1)
+            
     """
         #traiter chaque cas particulier 
         if(parcours_id != -1):
