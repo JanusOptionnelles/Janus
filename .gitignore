@@ -1,6 +1,4 @@
-janus/settings.py
 janus/__pycache__
-optionnelles/migrations
 optionnelles/__pycache__
 .DS_Store
 optionnelles/templatetags/__pycache__/
